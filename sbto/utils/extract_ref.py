@@ -90,7 +90,12 @@ class ReferenceMotion:
         # Load base data
         base = load_npz_reference(ref_motion_path)
         self.fps = base["fps"] * speedup
-        self._qpos = base["qpos"]
+        self._qpos = np.asarray(base["qpos"], dtype=np.float64).copy()
+        if self._qpos.ndim != 2 or self._qpos.shape[1] != self.mj_scene.Nq:
+            raise ValueError(
+                f"Reference qpos must have shape (T, {self.mj_scene.Nq}); "
+                f"got {self._qpos.shape}."
+            )
 
         # Fix quaterion format
         if self.mj_scene.is_floating_base:
@@ -147,9 +152,9 @@ class ReferenceMotion:
         dt_in = 1.0 / self.fps
 
         if abs(self.dt - dt_in) < 1e-4:
-            return
+            return qpos_dict
 
-        t_new = np.arange(0, self.time[-1], self.dt)
+        t_new = np.arange(0, self.time[-1] + self.dt / 2, self.dt)
         qpos_dict_interp = {}
         for k, v in qpos_dict.items():
             is_quat = True if "rot" in k else False
@@ -178,16 +183,46 @@ class ReferenceMotion:
         return out
 
     def concatenate_full_state(self, qpos_dict, vel_dict) -> np.ndarray:
-        all = []
-        for k in KEYS_QPOS :
-            v = qpos_dict.get(k, None)
-            if v is not None:
-                all.append(v)
-        for k in KEYS_QVEL:
-            v = vel_dict.get(k, None)
-            if v is not None:
-                all.append(v)
-        return np.hstack(all)
+        x = np.zeros((len(self.time), self.mj_scene.Nx))
+        x[:, :self.mj_scene.Nq] = self.mj_scene.mj_model.qpos0
+
+        qpos_fields = {
+            KEY_DOF_POS: self.mj_scene.act_qposadr,
+            KEY_ROOT_POS: self.mj_scene.base_pos_adr,
+            KEY_ROOT_ROT: self.mj_scene.base_quat_adr,
+            KEY_OBJECT_POS: self.mj_scene.obj_pos_adr,
+            KEY_OBJECT_ROT: self.mj_scene.obj_quat_adr,
+        }
+        qvel_fields = {
+            KEY_DOF_V: self.mj_scene.act_vel_adr,
+            KEY_ROOT_V: self.mj_scene.base_v_adr,
+            KEY_ROOT_W: self.mj_scene.base_w_adr,
+            KEY_OBJECT_V: self.mj_scene.obj_v_adr,
+            KEY_OBJECT_W: self.mj_scene.obj_w_adr,
+        }
+        used_qpos = []
+        for key, addresses in qpos_fields.items():
+            if key in qpos_dict:
+                x[:, addresses] = qpos_dict[key]
+                used_qpos.extend(addresses)
+        for key, addresses in qvel_fields.items():
+            if key in vel_dict:
+                x[:, addresses] = vel_dict[key]
+
+        passive_qpos = np.setdiff1d(
+            np.arange(self.mj_scene.Nq), np.asarray(used_qpos, dtype=int)
+        )
+        if passive_qpos.size:
+            passive_values = self._qpos[:, passive_qpos]
+            # ponytail: moving passive joints need model-aware interpolation and qvels.
+            if not np.allclose(passive_values, passive_values[0], atol=1e-8):
+                raise ValueError(
+                    "Reference contains moving passive joints; only constant passive "
+                    "joint references are supported."
+                )
+            x[:, passive_qpos] = passive_values[0]
+
+        return x
 
     def compute_sensor_data(self, sensor_names: List[str]):
         """
