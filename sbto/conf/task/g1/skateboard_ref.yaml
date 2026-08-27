@@ -1,0 +1,36 @@
+defaults:
+  - g1/sim@sim: default.yaml
+  - g1/sim/mj_scene@sim.mj_scene: skateboard.yaml
+  - g1/cfg_ref@cfg_ref: default.yaml
+  - _self_
+
+_target_: sbto.tasks.g1.skateboard_ref.G1SkateboardRef
+
+cfg:
+  _target_: sbto.tasks.g1.skateboard_ref.ConfigG1SkateboardRef
+
+  joint_pos_weight: 0.25
+  joint_vel_weight: 0.01
+  base_pos_weight: 5.0
+  base_quat_weight: 1.0
+  torso_pos_weight: 30.0
+  torso_quat_weight: 1.0
+  torso_quat_weight_terminal: 1.0
+  torso_linvel_weight: 0.3
+  torso_angvel_weight: 0.1
+  foot_position: 10.0
+  foot_orientation: 0.0
+  contact_feet_weight: 0.0
+  contact_force_feet_weight: 0.0
+  hand_position: 0.0
+  hand_orientation: 0.0
+  self_collision: 1.0
+
+  board_pos_weight: 40.0
+  board_quat_weight: 4.0
+  board_v_weight: 0.2
+  board_w_weight: 0.2
+  deck_contact_weight: 2.0
+  landing_duration: 0.3
+  board_floor_contact_weight: 2.0
+  foot_floor_collision_weight: 2.0

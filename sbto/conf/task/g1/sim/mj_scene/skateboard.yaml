@@ -1,0 +1,13 @@
+_target_: sbto.sim.scene_mj.MjScene
+cfg:
+  _target_: sbto.sim.scene_mj.ConfigMjScene
+  xml_scene_path: sbto/models/unitree_g1/scene_mjx_29dof_skateboard.xml
+  xml_sensors_path:
+    - sbto/models/unitree_g1/sensors/skateboard.xml
+    - sbto/models/unitree_g1/sensors/feet_pos.xml
+    - sbto/models/unitree_g1/sensors/hands_pos_no_obj.xml
+    - sbto/models/unitree_g1/sensors/torso.xml
+    - sbto/models/unitree_g1/sensors/self_collision.xml
+  xml_contact_pairs_path:
+    - sbto/models/unitree_g1/contact_pairs/reduced.xml
+    - sbto/models/unitree_g1/contact_pairs/skateboard.xml
