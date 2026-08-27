@@ -112,7 +112,7 @@ def solver_state_path_from_rundir(rundir: str, suffix: str = "") -> str:
 def load_best_trajectory_from_rundir(rundir: str, with_full_state: bool = True):
     data_path = os.path.join(rundir, f"{BEST_TRAJECTORY_FILENAME}.npz")
     data = dict(np.load(data_path))
-    if with_full_state:
+    if with_full_state and KEY_FULL_STATE not in data:
         x_traj = reconstruct_x_traj_from_data_dict(data)
         data[KEY_FULL_STATE] = x_traj
     return data

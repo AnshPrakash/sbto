@@ -67,7 +67,6 @@ def reconstruct_x_traj_from_data_dict(data_dict):
     x_traj = []
     for k in KEYS_QPOS + KEYS_QVEL:
         if k in data_dict:
-            print(data_dict[k].shape)
             x_traj.append(data_dict[k])
     return np.concatenate(x_traj, axis=-1)
 
