@@ -1,17 +1,25 @@
 import argparse
+
 import mujoco
+from hydra.utils import instantiate
 
-from sbto.main import instantiate_from_cfg
-from sbto.data.utils import get_config_from_rundir, load_best_trajectory_from_rundir
-from sbto.utils.viewer import visualize_trajectory_with_reference, visualize_trajectory
 from sbto.data.constants import *
+from sbto.data.utils import get_config_from_rundir, load_best_trajectory_from_rundir
+from sbto.main import instantiate_from_cfg
+from sbto.utils.viewer import visualize_trajectory, visualize_trajectory_with_reference
 
-def main(rundir: str, with_ref: bool = True):
+
+def main(rundir: str, with_ref: bool = True, reference_path: str | None = None):
 
     cfg = get_config_from_rundir(rundir)
     data = load_best_trajectory_from_rundir(rundir)
 
-    sim, task, _, _ = instantiate_from_cfg(cfg)
+    if with_ref:
+        if reference_path:
+            cfg.task.cfg_ref.motion_path = reference_path
+        sim, task, _, _ = instantiate_from_cfg(cfg)
+    else:
+        sim = instantiate(cfg.task.sim)
     mj_model = sim.mj_scene.mj_model
     mj_data = mujoco.MjData(mj_model)
 
@@ -41,10 +49,15 @@ if __name__ == "__main__":
         action="store_true",
         help="Disable reference trajectory visualization.",
     )
+    parser.add_argument(
+        "--reference",
+        help="Override the reference path stored in the run configuration.",
+    )
 
     args = parser.parse_args()
 
     main(
         rundir=args.rundir,
         with_ref=not args.no_ref,
+        reference_path=args.reference,
     )
