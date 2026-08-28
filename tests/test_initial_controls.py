@@ -3,10 +3,15 @@ from types import SimpleNamespace
 import numpy as np
 from omegaconf import OmegaConf
 
-from sbto.data.constants import KEY_PD_KNOTS, KEY_PD_TARGET
+from sbto.data.constants import (
+    KEY_PD_KNOTS,
+    KEY_PD_TARGET,
+    KEY_PD_TARGET_CANDIDATES,
+)
 from sbto.data.save import select_best_trajectory
 from sbto.utils.hydra import (
     get_initial_state_solver_from_controls,
+    set_initial_state_from_path,
     update_cfg_from_warm_start,
 )
 
@@ -46,6 +51,57 @@ def test_exact_initial_knots_take_precedence(tmp_path):
     mean = get_initial_state_solver_from_controls(sim, solver, path)
 
     assert np.array_equal(mean.reshape(3, 2), np.ones((3, 2)))
+
+
+def test_policy_candidates_initialize_diagonal_covariance(tmp_path):
+    path = tmp_path / "controls.npz"
+    controls = np.arange(10, dtype=float).reshape(5, 2)
+    candidates = np.stack((controls - 0.1, controls + 0.1))
+    np.savez(
+        path,
+        **{
+            KEY_PD_TARGET: controls,
+            KEY_PD_TARGET_CANDIDATES: candidates,
+        },
+    )
+    sim = SimpleNamespace(
+        Nu=2,
+        Nknots=3,
+        scaling=SimpleNamespace(inverse=lambda value: value),
+    )
+    solver = SimpleNamespace(
+        init_state=lambda mean, cov: SimpleNamespace(mean=mean, cov=cov)
+    )
+
+    state = get_initial_state_solver_from_controls(
+        sim, solver, path, std_floor=0.05, std_ceiling=0.2
+    )
+
+    assert np.array_equal(state.mean.reshape(3, 2), controls[[0, 2, 4]])
+    assert np.allclose(np.diag(state.cov), 0.1**2)
+    assert np.count_nonzero(state.cov - np.diag(np.diag(state.cov))) == 0
+
+
+def test_policy_initial_state_uses_first_frame(tmp_path):
+    path = tmp_path / "state.npz"
+    qpos = np.arange(12, dtype=float).reshape(3, 4)
+    qvel = np.arange(9, dtype=float).reshape(3, 3)
+    np.savez(path, qpos=qpos, qvel=qvel)
+    updates = []
+    states = []
+    sim = SimpleNamespace(
+        mj_scene=SimpleNamespace(
+            mj_model=SimpleNamespace(nq=4, nv=3),
+            update_data=lambda q, v: updates.append((q.copy(), v.copy())),
+        ),
+        set_initial_state=lambda state: states.append(state.copy()),
+    )
+
+    set_initial_state_from_path(sim, path)
+
+    assert np.array_equal(updates[0][0], qpos[0])
+    assert np.array_equal(updates[0][1], qvel[0])
+    assert np.array_equal(states[0], np.concatenate((qpos[0], qvel[0])))
 
 
 def test_warm_start_preserves_existing_reference(tmp_path):

@@ -3,12 +3,18 @@ import glob
 import os
 from functools import partial
 
+import mujoco
 import numpy as np
 import yaml
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
-from sbto.data.constants import BEST_TRAJECTORY_FILENAME, KEY_PD_KNOTS, KEY_PD_TARGET
+from sbto.data.constants import (
+    BEST_TRAJECTORY_FILENAME,
+    KEY_PD_KNOTS,
+    KEY_PD_TARGET,
+    KEY_PD_TARGET_CANDIDATES,
+)
 from sbto.data.load import get_final_state_from_rundir
 from sbto.data.save import save_results
 from sbto.run.optimize import (
@@ -96,6 +102,8 @@ def optimize_and_save_data(
 def instantiate_from_cfg(cfg):
     sim = instantiate(cfg.task.sim)
     task = instantiate(cfg.task, sim=sim)
+    if cfg.get("init_state_path", ""):
+        set_initial_state_from_path(sim, cfg.init_state_path)
     random = instantiate(cfg.random, sim=sim, seed=cfg.solver.cfg.seed)
     solver = instantiate(cfg.solver, D=sim.Nvars_u)
     return sim, task, solver, random
@@ -109,7 +117,49 @@ def get_initial_state_solver_from_ref(sim, task, solver):
     solver_state_0 = solver.init_state(mean=pd_knots_from_ref)
     return solver_state_0
 
-def get_initial_state_solver_from_controls(sim, solver, control_path):
+def _sample_at_knots(values, n_knots):
+    indices = np.rint(np.linspace(0, values.shape[-2] - 1, n_knots)).astype(int)
+    return values[..., indices, :]
+
+
+def _actuator_joint_names(sim):
+    model = sim.mj_scene.mj_model
+    return [
+        mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, int(joint_id))
+        for joint_id in model.actuator_trnid[:, 0]
+    ]
+
+
+def set_initial_state_from_path(sim, state_path):
+    with np.load(state_path) as data:
+        if "qpos" not in data or "qvel" not in data:
+            raise ValueError(f"{state_path} must contain 'qpos' and 'qvel'")
+        qpos = np.asarray(data["qpos"])
+        qvel = np.asarray(data["qvel"])
+    expected = ((sim.mj_scene.mj_model.nq,), (sim.mj_scene.mj_model.nv,))
+    if qpos.ndim != 2 or qpos.shape[1:] != expected[0]:
+        raise ValueError(f"Initial qpos must have shape (T, {expected[0][0]}); got {qpos.shape}")
+    if qvel.ndim != 2 or qvel.shape[1:] != expected[1]:
+        raise ValueError(f"Initial qvel must have shape (T, {expected[1][0]}); got {qvel.shape}")
+    state = np.concatenate((qpos[0], qvel[0]))
+    if not np.all(np.isfinite(state)):
+        raise ValueError(f"Initial state in {state_path} contains non-finite values")
+    sim.mj_scene.update_data(qpos[0], qvel[0])
+    sim.set_initial_state(state)
+
+
+def get_initial_state_solver_from_controls(
+    sim,
+    solver,
+    control_path,
+    std_floor=0.02,
+    std_ceiling=0.25,
+):
+    if not 0 <= std_floor <= std_ceiling:
+        raise ValueError(
+            "Control standard deviations require 0 <= floor <= ceiling; "
+            f"got floor={std_floor}, ceiling={std_ceiling}"
+        )
     if os.path.isdir(control_path):
         control_path = os.path.join(control_path, f"{BEST_TRAJECTORY_FILENAME}.npz")
     with np.load(control_path) as data:
@@ -122,15 +172,39 @@ def get_initial_state_solver_from_controls(sim, solver, control_path):
                 f"{control_path} has neither {KEY_PD_KNOTS!r} nor "
                 f"{KEY_PD_TARGET!r}"
             )
+        candidates = (
+            np.asarray(data[KEY_PD_TARGET_CANDIDATES])
+            if KEY_PD_TARGET_CANDIDATES in data
+            else None
+        )
+        if "action_joint_names" in data:
+            names = [str(name) for name in data["action_joint_names"]]
+            expected_names = _actuator_joint_names(sim)
+            if names != expected_names:
+                raise ValueError(
+                    "Policy action joint order does not match SBTO actuators:\n"
+                    f"policy={names}\nSBTO={expected_names}"
+                )
     if controls.ndim != 2 or controls.shape[1] != sim.Nu:
         raise ValueError(
             f"Initial controls must have shape (T, {sim.Nu}); got {controls.shape}"
         )
     if len(controls) != sim.Nknots:
-        indices = np.rint(np.linspace(0, len(controls) - 1, sim.Nknots)).astype(int)
-        controls = controls[indices]
+        controls = _sample_at_knots(controls, sim.Nknots)
     knots = sim.scaling.inverse(controls).reshape(-1)
-    return solver.init_state(mean=knots)
+    if candidates is None:
+        return solver.init_state(mean=knots)
+    if candidates.ndim != 3 or candidates.shape[2] != sim.Nu:
+        raise ValueError(
+            f"Control candidates must have shape (K, T, {sim.Nu}); got "
+            f"{candidates.shape}"
+        )
+    candidate_knots = sim.scaling.inverse(
+        _sample_at_knots(candidates, sim.Nknots)
+    ).reshape(len(candidates), -1)
+    std = np.std(candidate_knots, axis=0)
+    std = np.clip(std, std_floor, std_ceiling)
+    return solver.init_state(mean=knots, cov=np.diag(std**2))
 
 def get_warm_start_state_solver(cfg, sim, task, solver) -> SolverState:
     # Set initial solver state
@@ -140,7 +214,11 @@ def get_warm_start_state_solver(cfg, sim, task, solver) -> SolverState:
 
     if cfg.init_control_path:
         solver_state_0 = get_initial_state_solver_from_controls(
-            sim, solver, cfg.init_control_path
+            sim,
+            solver,
+            cfg.init_control_path,
+            cfg.get("init_control_std_floor", 0.02),
+            cfg.get("init_control_std_ceiling", 0.25),
         )
 
     if cfg.warm_start.rundir and os.path.exists(cfg.warm_start.rundir):

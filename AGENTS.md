@@ -33,6 +33,7 @@ files clean without folding a broad lint rewrite into feature work.
 - `sbto/models/unitree_g1/scene_mjx_29dof_skateboard.xml`: combined model.
 - `sbto/models/skateboard/skateboard_adi.xml`: articulated board body.
 - `sbto/utils/extract_ref.py`: reference-state extraction and validation.
+- `sbto/utils/hydra.py`: reference, policy-state, and control warm-start wiring.
 - `scripts/convert_beyondmimic_reference.py`: name-safe BeyondMimic converter.
 - `scripts/condition_skateboard_reference.py`: validated stance/landing padding.
 - `sbto/evaluation/skateboard.py`: non-interactive skateboard acceptance gate.
@@ -70,4 +71,6 @@ those states are preserved even though the optimizer still controls only the
   task. Add focused tests for state-layout or contact/cost contract changes.
 
 Read [ADR 0001](docs/adr/0001-articulated-skateboard-refinement.md) before
-changing the skateboard state layout or dynamics assumptions.
+changing the skateboard state layout or dynamics assumptions. Read [ADR
+0002](docs/adr/0002-policy-grounded-cem-warm-start.md) before changing the
+policy-rollout seed schema or treating failures as optimization targets.

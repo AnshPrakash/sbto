@@ -103,6 +103,32 @@ uv run python sbto/main.py \
   task.sim.cfg.step_knots=10
 ```
 
+If a policy already tracks the same reference, export a stable rollout with
+the skateboarding repository's `skateboard-sbto-rollouts` command. Use that
+single archive to ground SBTO's initial state, control mean, and diagonal CEM
+variance while keeping the motion-editor trajectory as the tracking target:
+
+```bash
+uv run --locked python sbto/main.py \
+  task=g1/skateboard_ref \
+  task.cfg_ref.motion_path=PATH_TO_ORIGINAL_SBTO_REFERENCE.npz \
+  task.cfg_ref.flip_quat_pos=false \
+  init_state_path=PATH_TO_POLICY_SEED.npz \
+  init_control_path=PATH_TO_POLICY_SEED.npz \
+  init_control_std_floor=0.02 \
+  init_control_std_ceiling=0.25 \
+  solver=cem \
+  solver.cfg.diagonal_covariance=true \
+  task.sim.cfg.step_knots=10
+```
+
+The selected successful rollout supplies the mean. Other stable successful
+rollouts supply per-knot variance, clipped by the two standard-deviation
+bounds. Failed rollout endings are diagnostics for recovery analysis and are
+not optimization targets. The action-joint order and complete initial
+`qpos`/`qvel` are validated before optimization starts. See [ADR
+0002](docs/adr/0002-policy-grounded-cem-warm-start.md).
+
 SBTO still optimizes only the 29 robot actuator targets. Passive skateboard
 positions and velocities are reference state, not controls. See [ADR
 0001](docs/adr/0001-articulated-skateboard-refinement.md) for the model and

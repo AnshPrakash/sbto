@@ -50,6 +50,31 @@ def test_cem_std_thresholds_use_standard_deviation_units():
     assert np.isclose(solver.increment_value(), 0.03)
 
 
+def test_diagonal_cem_samples_and_updates_without_dense_covariance():
+    solver = CEM(
+        3,
+        ConfigCEM(
+            N_samples=20,
+            elite_frac=0.2,
+            diagonal_covariance=True,
+            sigma0=0.2,
+            seed=0,
+        ),
+    )
+    solver.state = solver.init_state(
+        mean=np.array([1.0, 2.0, 3.0]),
+        cov=np.diag([0.01, 0.04, 0.09]),
+    )
+
+    samples = solver.get_samples().copy()
+    solver.update_distrib_param(solver.state, samples[:4])
+
+    assert np.array_equal(samples[0], [1.0, 2.0, 3.0])
+    assert np.count_nonzero(
+        solver.state.cov - np.diag(np.diag(solver.state.cov))
+    ) == 0
+
+
 def test_finetune_restarts_distribution_from_previous_best(tmp_path):
     solver = CEM(2, ConfigCEM(N_samples=10, elite_frac=0.2, seed=0))
     state = solver.init_state(mean=np.array([1.0, 2.0]))

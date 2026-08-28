@@ -22,6 +22,7 @@ class ConfigCEM(ConfigSolver):
     std_incr: float = 0.
     keep_frac: float = 0.
     min_std_collapsed: float = 0.
+    diagonal_covariance: bool = False
     _target_:str = "sbto.solvers.cem.CEM"
     
 class CEM(SamplingBasedSolver):
@@ -50,10 +51,18 @@ class CEM(SamplingBasedSolver):
         self.dim_to_sample[self.n_dim:] = False
 
         N = 0 if self.first_it else self.N_keep
-        self.samples[N:, self.dim_to_sample] = self.sampler.sample(
-            mean=self.state.mean[self.dim_to_sample],
-            cov=self.state.cov[self.dim_to_sample, :][:, self.dim_to_sample],
-        )[N:]
+        self.samples[N:] = self.state.mean
+        if self.cfg.diagonal_covariance:
+            shape = (self.cfg.N_samples - N, np.count_nonzero(self.dim_to_sample))
+            noise = self.sampler.rng.standard_normal(shape)
+            self.samples[N:, self.dim_to_sample] += noise * np.sqrt(
+                diag[self.dim_to_sample]
+            )
+        else:
+            self.samples[N:, self.dim_to_sample] = self.sampler.sample(
+                mean=self.state.mean[self.dim_to_sample],
+                cov=self.state.cov[self.dim_to_sample, :][:, self.dim_to_sample],
+            )[N:]
 
         if np.any(self.collapsed_dim):
             self.samples[:, self.collapsed_dim] = self.state.mean[None, self.collapsed_dim]
@@ -78,6 +87,17 @@ class CEM(SamplingBasedSolver):
         return elites, elites_idx
     
     def update_distrib_param(self, state: SolverState, elites: Array) -> None:
+        if self.cfg.diagonal_covariance:
+            s = slice(0, self.n_dim)
+            mean = np.mean(elites[:, s], axis=0)
+            variance = np.var(elites[:, s], axis=0) + self.cfg.std_incr
+            state.mean[s] += self.cfg.alpha_mean * (mean - state.mean[s])
+            old_variance = np.diag(state.cov)[s]
+            new_variance = old_variance + self.cfg.alpha_cov * (
+                variance - old_variance
+            )
+            state.cov[s, s] = np.diag(new_variance)
+            return
         mean, cov = self.sampler.estimate_params(elites)
         if self.reg_cov:
             cov += self.Id
