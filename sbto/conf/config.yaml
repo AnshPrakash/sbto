@@ -13,3 +13,6 @@ exp_name: ""
 description: ""
 # If a reference is provided, initial knots are taken from the reference
 init_knots_from_ref: True
+# Optional best_trajectory.npz (or its run directory) used only for initial
+# actuator knots; the task still tracks task.cfg_ref.motion_path.
+init_control_path: ""

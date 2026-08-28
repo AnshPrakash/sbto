@@ -1,23 +1,36 @@
 import os
-import numpy as np
 import shutil
-import numpy.typing as npt
 from dataclasses import asdict
-from typing import List
-import mujoco
 
-from sbto.tasks.task_mj import TaskMj
-from sbto.sim.sim_mj_rollout import SimMjRollout
-from sbto.tasks.task_base import OCPBase
-from sbto.solvers.solver_base import SolverState
-from sbto.utils.plotting import plot_contact_plan, plot_costs, plot_mean_cov, plot_state_control
-from sbto.utils.viewer import render_and_save_trajectory
-from sbto.data.utils import solver_state_path_from_rundir, create_dirs
-from sbto.data.postprocess import split_x_traj
+import mujoco
+import numpy as np
+import numpy.typing as npt
+
 from sbto.data.aggregate import get_top_samples
 from sbto.data.constants import *
+from sbto.data.postprocess import split_x_traj
+from sbto.data.utils import create_dirs, solver_state_path_from_rundir
+from sbto.sim.sim_mj_rollout import SimMjRollout
+from sbto.solvers.solver_base import SolverState
+from sbto.tasks.task_base import OCPBase
+from sbto.tasks.task_mj import TaskMj
+from sbto.utils.plotting import (
+    plot_contact_plan,
+    plot_costs,
+    plot_mean_cov,
+    plot_state_control,
+)
+from sbto.utils.viewer import render_and_save_trajectory
 
 Array = npt.NDArray[np.float64]
+
+
+def select_best_trajectory(data: dict, index: int) -> dict:
+    """Select batched trajectory data while preserving shared knot times."""
+    return {
+        key: value if key == KEY_STEP_KNOTS else np.squeeze(value[index])
+        for key, value in data.items()
+    }
 
 def save_all_samples_and_cost(
     dir_path: str,
@@ -107,7 +120,7 @@ def save_results(
     solver_state_0: SolverState,
     solver_state_final: SolverState,
     all_samples: Array,
-    best_samples_it: List[Array],
+    best_samples_it: list[Array],
     all_costs: Array,
     exp_name: str = "",
     description: str = "",
@@ -120,8 +133,9 @@ def save_results(
     split_state: bool = False,
     save_top: float = 0.,
     n_last_it: int = 0,
-    remove_keys: List[str] = [],
+    remove_keys: list[str] | None = None,
     ) -> str:
+    remove_keys = [] if remove_keys is None else remove_keys
     exp_name = task.__class__.__name__ if not exp_name else exp_name
     result_dir = create_dirs(exp_name, data_dir, description)
 
@@ -212,7 +226,7 @@ def save_results(
         best_data = data_traj.copy()
     else:
         arg_min_cost = np.argmin(top_costs)
-        best_data = {k: np.squeeze(v[arg_min_cost]) for k, v in data_traj.items()}
+        best_data = select_best_trajectory(data_traj, arg_min_cost)
     np.savez_compressed(
         file_path,
         **{
@@ -223,8 +237,7 @@ def save_results(
     
     # Remove keys from data
     for k in remove_keys:
-        if k in data_traj.keys():
-            del data_traj[k]
+        data_traj.pop(k, None)
 
     # Save top trajectories
     if N_top_samples > 1:

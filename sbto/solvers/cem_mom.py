@@ -1,9 +1,9 @@
-import numpy as np
-import numpy.typing as npt
-from typing import Tuple
 from dataclasses import dataclass
 
-from sbto.solvers.solver_base import SamplingBasedSolver, SolverState, ConfigSolver
+import numpy as np
+import numpy.typing as npt
+
+from sbto.solvers.solver_base import ConfigSolver, SamplingBasedSolver, SolverState
 
 Array = npt.NDArray[np.float64]
 IntArray = npt.NDArray[np.intp]
@@ -30,7 +30,7 @@ class CEMM(SamplingBasedSolver):
     def __init__(self, D, cfg: ConfigCEMM):
         super().__init__(D, cfg)
         self.N_elite = int(cfg.elite_frac * cfg.N_samples)
-        self.N_keep = int(self.N_elite * cfg.keep_frac)
+        self.N_keep = min(self.N_elite, int(cfg.N_samples * cfg.keep_frac))
         # small diagonal regularization for covariance
         self.Id = np.diag(np.full(self.D, cfg.std_incr))
         self.reg_cov = cfg.std_incr > 0.
@@ -54,7 +54,7 @@ class CEMM(SamplingBasedSolver):
         by the current state.
         """
         diag = np.diag(self.state.cov)
-        self.collapsed_dim = diag < self.cfg.min_std_collapsed  # boolean mask
+        self.collapsed_dim = diag < self.cfg.min_std_collapsed**2
         self.dim_to_sample = ~self.collapsed_dim
         self.dim_to_sample[self.n_dim:] = False
 
@@ -67,9 +67,16 @@ class CEMM(SamplingBasedSolver):
         if np.any(self.collapsed_dim):
             self.samples[:, self.collapsed_dim] = self.state.mean[None, self.collapsed_dim]
 
+        anchor = (
+            self.state.mean
+            if self.first_it or not np.isfinite(self.state.min_cost_all)
+            else self.state.best_all
+        )
+        self.samples[0] = anchor
+
         return self.samples
     
-    def get_elites(self, samples: Array, costs: Array) -> Tuple[Array, IntArray]:
+    def get_elites(self, samples: Array, costs: Array) -> tuple[Array, IntArray]:
         """
         Returns (elites, elite_idx)
         """

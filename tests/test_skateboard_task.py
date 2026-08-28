@@ -31,7 +31,10 @@ def test_skateboard_task_uses_full_articulated_state(tmp_path, monkeypatch):
     cfg.task.cfg_ref.motion_path = str(ref_path)
     cfg.task.cfg_ref.flip_quat_pos = False
     cfg.task.cfg.torso_quat_weight_terminal = 123.0
+    cfg.task.cfg.torso_linvel_weight_terminal = 234.0
     cfg.task.cfg.board_quat_weight_terminal = 456.0
+    cfg.task.cfg.board_v_weight_terminal = 567.0
+    cfg.task.cfg.foot_board_position_weight_terminal = 678.0
 
     compute_sensor_data = ReferenceMotion.compute_sensor_data
 
@@ -52,8 +55,11 @@ def test_skateboard_task_uses_full_articulated_state(tmp_path, monkeypatch):
     assert np.all(task.contact_plan[-4:] == 1)
     assert cfg.task.sim.mj_scene.cfg.xml_contact_pairs_path[0].endswith("full.xml")
     assert sim.mj_scene.mj_model.sensor("robot_floor").id >= 0
+    for name in task.INVALID_BOARD_FLOOR_SENSORS:
+        assert sim.mj_scene.mj_model.sensor(name).id >= 0
     assert sim.mj_scene.mj_model.sensor("left_foot_pos_board").id >= 0
     assert any(name.startswith("robot_floor_") for name in task._costs_names)
+    assert any(name.startswith("deck_floor+") for name in task._costs_names)
     assert any(
         name.startswith("left_foot_pos_board+right_foot_pos_board_")
         for name in task._costs_names
@@ -64,8 +70,22 @@ def test_skateboard_task_uses_full_articulated_state(tmp_path, monkeypatch):
         if name.startswith("orientation_torso_")
     )
     assert np.all(task._cost_terms["w"][torso_quat_cost][-1] == 123.0)
+    torso_linvel_cost = next(
+        i
+        for i, name in enumerate(task._costs_names)
+        if name.startswith("global_linvel_torso_")
+    )
+    assert np.all(task._cost_terms["w"][torso_linvel_cost][-1] == 234.0)
     board_quat_cost = task._costs_names.index("board_quat")
     assert np.all(task._cost_terms["w"][board_quat_cost][-1] == 456.0)
+    board_velocity_cost = task._costs_names.index("board_velocity")
+    assert np.all(task._cost_terms["w"][board_velocity_cost][-1] == 567.0)
+    foot_board_cost = next(
+        i
+        for i, name in enumerate(task._costs_names)
+        if name.startswith("left_foot_pos_board+right_foot_pos_board_")
+    )
+    assert np.all(task._cost_terms["w"][foot_board_cost][-1] == 678.0)
     for joint_name in ("trj0", "whj0", "whj1", "trj1", "whj2", "whj3"):
         address = int(sim.mj_scene.mj_model.joint(joint_name).qposadr[0])
         assert np.all(task.ref.x[:, address] == 0.0)

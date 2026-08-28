@@ -26,7 +26,9 @@ class ConfigG1RobotRef:
     torso_quat_weight: float = 1.
     torso_quat_weight_terminal: float = 10.
     torso_linvel_weight: float = 1.
+    torso_linvel_weight_terminal: float = 1.
     torso_angvel_weight: float = 1.
+    torso_angvel_weight_terminal: float = 1.
 
     # --- Hand pose cost ---
     hand_position: float = 5.
@@ -154,11 +156,13 @@ class G1RobotRef(TaskMjRef):
             G1.Sensors.TORSO_LINVEL,
             quadratic_cost_nb,
             weights=cfg.torso_linvel_weight,
+            weights_terminal=cfg.torso_linvel_weight_terminal,
         )
         self.add_sensor_cost_from_ref(
             G1.Sensors.TORSO_ANGVEL,
             quadratic_cost_nb,
             weights=cfg.torso_angvel_weight,
+            weights_terminal=cfg.torso_angvel_weight_terminal,
         )
         # Hand position (world and obj frame)
         self.add_sensor_cost_from_ref(

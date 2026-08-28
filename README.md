@@ -78,6 +78,21 @@ uv run --locked python scripts/convert_beyondmimic_reference.py \
   artifacts/reference-sbto-state.npz
 ```
 
+For a trick clip that starts mid-motion, prepend a physically checked on-board
+stance and append a landing hold before optimization:
+
+```bash
+uv run --locked python scripts/condition_skateboard_reference.py \
+  artifacts/reference-sbto-state.npz \
+  artifacts/reference-stable-leadin.npz
+```
+
+The script writes a YAML provenance sidecar and refuses to save if the initial
+stance fails its torso, deck-contact, or floor-collision checks. Conditioning
+changes the motion duration; keep both the original and conditioned references.
+Pass `--warm-start-run RUN_DIRECTORY` to also write an initial-control archive,
+then provide it to SBTO as `init_control_path=PATH_TO_CONTROLS.npz`.
+
 Then optimize it:
 
 ```bash
@@ -94,6 +109,22 @@ positions and velocities are reference state, not controls. See [ADR
 validation boundary. Generated trajectories should stay outside Git until
 their tracking, board rotation, landing, collision, and finite-value checks
 pass.
+
+Evaluate a run directory non-interactively before reviewing or exporting it:
+
+```bash
+uv run --locked python -m sbto.evaluation.skateboard \
+  artifacts/experiments/EXPERIMENT/RUN \
+  --reference artifacts/reference-stable-leadin.npz
+```
+
+This writes `evaluation.yaml` and exits nonzero when any acceptance gate fails.
+It checks a further 0.5-second terminal-control replay. The aggregate
+`skateboard_floor` sensor includes legitimate wheel contact, so acceptance uses
+explicit deck, nose, tail, and truck strikes instead.
+
+The Joao pop-shuvit investigation and its current non-passing result are
+recorded in [the feasibility study](docs/joao-popshuvit-feasibility-2026-08-28.md).
 
 ### Changing the scene
 SBTO also allows to change the scene directly from command line arguments.

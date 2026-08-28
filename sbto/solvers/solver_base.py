@@ -1,16 +1,16 @@
+from abc import ABC, abstractmethod
+from dataclasses import asdict, dataclass
+from typing import Any
+
 import numpy as np
 import numpy.typing as npt
-from dataclasses import dataclass, asdict
-from abc import ABC, abstractmethod
-from typing import Any
-import copy
 
-from sbto.solvers.sampler import SamplerAbstract, AVAILABLE_SAMPLERS
+from sbto.solvers.sampler import AVAILABLE_SAMPLERS, SamplerAbstract
 
 Array = npt.NDArray[np.float64]
 
 @dataclass
-class SolverState():
+class SolverState:
     """
     State parameters for the solver.
     Default:
@@ -30,7 +30,7 @@ class SolverState():
     min_cost_all: float = np.inf
 
 @dataclass
-class ConfigSolver():
+class ConfigSolver:
     N_samples: int = 1024
     seed: int = 0
     quasi_random: bool = True
@@ -67,7 +67,7 @@ class SamplingBasedSolver(ABC):
     
     def _get_sampler(self) -> SamplerAbstract:
         sampler_name = self.cfg.sampler
-        if not sampler_name in AVAILABLE_SAMPLERS.keys():
+        if sampler_name not in AVAILABLE_SAMPLERS:
             raise ValueError(
                 f"Sampler {sampler_name} not available. "
                 f"Choose from {" ".join(AVAILABLE_SAMPLERS.keys())}"
@@ -133,11 +133,10 @@ class SamplingBasedSolver(ABC):
         Update inplace the solver state based on costs.
         Including minimum cost and best control.
         """
-        pass
 
     def increment_value(self) -> float:
         """
         Compute value to check if the number of 
         dimension should be incremented.
         """
-        return np.max(np.diag(self.state.cov[:self.n_dim, :self.n_dim]))
+        return np.sqrt(np.max(np.diag(self.state.cov[:self.n_dim, :self.n_dim])))

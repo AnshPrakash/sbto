@@ -30,6 +30,13 @@ velocities are preserved when `qvel` is present. Pose-only moving-passive
 references are rejected because their velocity state is ambiguous. SBTO still
 optimizes only the 29 robot actuator targets.
 
+References that begin mid-trick may be conditioned with a nominal on-board
+stance and terminal hold, but the conditioned archive is a new reference with
+its own hash and provenance sidecar. The stance must survive a direct MuJoCo
+hold before optimization begins. Acceptance distinguishes legitimate wheel
+contact from deck, nose, tail, or truck strikes; the aggregate
+`skateboard_floor` sensor cannot make that distinction.
+
 ## Consequences
 
 - Feasibility is relative to this MuJoCo model, contact setup, timestep, and

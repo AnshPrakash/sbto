@@ -1,21 +1,27 @@
-from hydra.utils import instantiate
-from typing import Optional
 import copy
-import os
 import glob
-import yaml
-import numpy as np
+import os
 from functools import partial
+
+import numpy as np
+import yaml
+from hydra.utils import instantiate
 from omegaconf import OmegaConf
 
+from sbto.data.constants import BEST_TRAJECTORY_FILENAME, KEY_PD_KNOTS, KEY_PD_TARGET
+from sbto.data.load import get_final_state_from_rundir
+from sbto.data.save import save_results
+from sbto.run.optimize import (
+    optimize_incremental_opt,
+    optimize_mutiple_shooting,
+    optimize_single_shooting,
+)
+from sbto.run.stats import OptimizationStats
 from sbto.sim.sim_base import SimRolloutBase
+from sbto.solvers.solver_base import SamplingBasedSolver, SolverState
 from sbto.tasks.task_base import OCPBase
 from sbto.tasks.task_mj_ref import TaskMjRef
-from sbto.solvers.solver_base import SamplingBasedSolver, SolverState
-from sbto.run.optimize import optimize_single_shooting, optimize_mutiple_shooting, optimize_incremental_opt
-from sbto.data.save import save_results
-from sbto.data.load import get_final_state_from_rundir
-from sbto.run.stats import OptimizationStats
+
 
 def optimize_and_save_data(
     cfg,
@@ -23,8 +29,8 @@ def optimize_and_save_data(
     task: OCPBase,
     solver: SamplingBasedSolver,
     hydra_rundir: str = "",
-    solver_state_0: Optional[SolverState] = None,
-    opt_stats: Optional[OptimizationStats] = None,
+    solver_state_0: SolverState | None = None,
+    opt_stats: OptimizationStats | None = None,
     ) -> str:
 
     # Copy initial state
@@ -103,20 +109,48 @@ def get_initial_state_solver_from_ref(sim, task, solver):
     solver_state_0 = solver.init_state(mean=pd_knots_from_ref)
     return solver_state_0
 
+def get_initial_state_solver_from_controls(sim, solver, control_path):
+    if os.path.isdir(control_path):
+        control_path = os.path.join(control_path, f"{BEST_TRAJECTORY_FILENAME}.npz")
+    with np.load(control_path) as data:
+        if KEY_PD_KNOTS in data:
+            controls = np.asarray(data[KEY_PD_KNOTS])
+        elif KEY_PD_TARGET in data:
+            controls = np.asarray(data[KEY_PD_TARGET])
+        else:
+            raise ValueError(
+                f"{control_path} has neither {KEY_PD_KNOTS!r} nor "
+                f"{KEY_PD_TARGET!r}"
+            )
+    if controls.ndim != 2 or controls.shape[1] != sim.Nu:
+        raise ValueError(
+            f"Initial controls must have shape (T, {sim.Nu}); got {controls.shape}"
+        )
+    if len(controls) != sim.Nknots:
+        indices = np.rint(np.linspace(0, len(controls) - 1, sim.Nknots)).astype(int)
+        controls = controls[indices]
+    knots = sim.scaling.inverse(controls).reshape(-1)
+    return solver.init_state(mean=knots)
+
 def get_warm_start_state_solver(cfg, sim, task, solver) -> SolverState:
     # Set initial solver state
     solver_state_0 = None
     if cfg.init_knots_from_ref and isinstance(task, TaskMjRef):
         solver_state_0 = get_initial_state_solver_from_ref(sim, task, solver)
 
+    if cfg.init_control_path:
+        solver_state_0 = get_initial_state_solver_from_controls(
+            sim, solver, cfg.init_control_path
+        )
+
     if cfg.warm_start.rundir and os.path.exists(cfg.warm_start.rundir):
         solver_state_0 = get_final_state_from_rundir(cfg.warm_start.rundir, solver)
 
         if not cfg.warm_start.cp_best:
+            solver_state_0.mean = solver_state_0.best_all.copy()
             solver.reset_min_cost_best(solver_state_0)
 
         if cfg.warm_start.add_cov_diag > 0.:
-            solver.init_state()
             N = solver_state_0.mean.shape[0]
             solver_state_0.cov += cfg.warm_start.add_cov_diag * np.eye(N)
 
@@ -169,9 +203,12 @@ def update_cfg_from_warm_start(cfg, hydra_rundir: str):
         )
         if len(cfg_paths) > 0:
             cfg_dict = load_yaml(cfg_paths[0])
-            # copy motion path and Nknots
+            # Fall back to the old run only when the current reference is unavailable.
             cfg_warm_start = OmegaConf.create(cfg_dict)
-            cfg.task.cfg_ref.motion_path = cfg_warm_start.task.cfg_ref.motion_path
+            current_motion = os.path.expanduser(cfg.task.cfg_ref.motion_path)
+            warm_motion = os.path.expanduser(cfg_warm_start.task.cfg_ref.motion_path)
+            if not os.path.exists(current_motion) and os.path.exists(warm_motion):
+                cfg.task.cfg_ref.motion_path = cfg_warm_start.task.cfg_ref.motion_path
             # cfg.task.sim.cfg.Nknots = cfg_warm_start.task.sim.cfg.Nknots
             # save yaml
 

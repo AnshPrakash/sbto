@@ -34,6 +34,8 @@ files clean without folding a broad lint rewrite into feature work.
 - `sbto/models/skateboard/skateboard_adi.xml`: articulated board body.
 - `sbto/utils/extract_ref.py`: reference-state extraction and validation.
 - `scripts/convert_beyondmimic_reference.py`: name-safe BeyondMimic converter.
+- `scripts/condition_skateboard_reference.py`: validated stance/landing padding.
+- `sbto/evaluation/skateboard.py`: non-interactive skateboard acceptance gate.
 - `tests/`: reference and skateboard contract checks.
 - `docs/adr/`: architectural decisions and scientific boundaries.
 
@@ -59,6 +61,9 @@ those states are preserved even though the optimizer still controls only the
 - A completed optimization is not enough: check finite values, board position
   and net yaw rotation, landing/deck contact, robot/foot-floor contact, torso
   height, and torso tilt.
+- Do not interpret the aggregate `skateboard_floor` sensor as a collision gate;
+  it also includes normal wheel contact. Use the skateboard evaluator's
+  explicit deck/nose/tail/truck contact check.
 - Treat candidates as review-only until cross-model replay and downstream
   project gates pass. Never describe model feasibility as hardware safety.
 - Preserve unrelated worktree changes and keep changes scoped to the active

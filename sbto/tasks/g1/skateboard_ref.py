@@ -21,11 +21,15 @@ class ConfigG1SkateboardRef(ConfigG1RobotRef):
     board_quat_weight: float = 4.0
     board_quat_weight_terminal: float = 4.0
     board_v_weight: float = 0.2
+    board_v_weight_terminal: float = 0.2
     board_w_weight: float = 0.2
+    board_w_weight_terminal: float = 0.2
     deck_contact_weight: float = 2.0
     foot_board_position_weight: float = 20.0
+    foot_board_position_weight_terminal: float = 20.0
     landing_duration: float = 0.3
     board_floor_contact_weight: float = 2.0
+    invalid_board_floor_collision_weight: float = 100.0
     foot_floor_collision_weight: float = 2.0
     robot_floor_collision_weight: float = 100.0
     torso_min_height: float = 0.65
@@ -34,6 +38,13 @@ class ConfigG1SkateboardRef(ConfigG1RobotRef):
 
 class G1SkateboardRef(G1RobotRef):
     BOARD_FLOOR_SENSOR = "skateboard_floor"
+    INVALID_BOARD_FLOOR_SENSORS = (
+        "deck_floor",
+        "nose_floor",
+        "tail_floor",
+        "front_truck_floor",
+        "rear_truck_floor",
+    )
     ROBOT_FLOOR_SENSOR = "robot_floor"
     DECK_CONTACT_SENSORS = ("left_foot_deck", "right_foot_deck")
     FOOT_BOARD_POSITION_SENSORS = (
@@ -85,20 +96,21 @@ class G1SkateboardRef(G1RobotRef):
             quadratic_cost_nb,
             sim.mj_scene.obj_v_adr,
             weights=cfg.board_v_weight,
-            weights_terminal=cfg.board_v_weight,
+            weights_terminal=cfg.board_v_weight_terminal,
         )
         self.add_state_cost_from_ref(
             "board_angular_velocity",
             quadratic_cost_nb,
             sim.mj_scene.obj_w_adr,
             weights=cfg.board_w_weight,
-            weights_terminal=cfg.board_w_weight,
+            weights_terminal=cfg.board_w_weight_terminal,
         )
 
         self.ref.compute_sensor_data([
             *self.DECK_CONTACT_SENSORS,
             *self.FOOT_BOARD_POSITION_SENSORS,
             self.BOARD_FLOOR_SENSOR,
+            *self.INVALID_BOARD_FLOOR_SENSORS,
             self.ROBOT_FLOOR_SENSOR,
             *self.FOOT_FLOOR_SENSORS,
         ])
@@ -106,7 +118,7 @@ class G1SkateboardRef(G1RobotRef):
             self.FOOT_BOARD_POSITION_SENSORS,
             quadratic_cost_nb,
             weights=cfg.foot_board_position_weight,
-            weights_terminal=cfg.foot_board_position_weight,
+            weights_terminal=cfg.foot_board_position_weight_terminal,
         )
         deck_contact_ref = np.column_stack([
             self.ref.sensor_data[name][:self.T, 0]
@@ -126,6 +138,12 @@ class G1SkateboardRef(G1RobotRef):
             hamming_dist_nb,
             ref_values=board_floor_ref,
             weights=cfg.board_floor_contact_weight,
+        )
+        self.add_sensor_cost(
+            self.INVALID_BOARD_FLOOR_SENSORS,
+            hamming_dist_nb,
+            ref_values=np.zeros((self.T, len(self.INVALID_BOARD_FLOOR_SENSORS))),
+            weights=cfg.invalid_board_floor_collision_weight,
         )
         self.add_sensor_cost(
             self.FOOT_FLOOR_SENSORS,
