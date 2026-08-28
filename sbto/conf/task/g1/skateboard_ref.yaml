@@ -28,9 +28,14 @@ cfg:
 
   board_pos_weight: 40.0
   board_quat_weight: 4.0
+  board_quat_weight_terminal: 4.0
   board_v_weight: 0.2
   board_w_weight: 0.2
   deck_contact_weight: 2.0
+  foot_board_position_weight: 20.0
   landing_duration: 0.3
   board_floor_contact_weight: 2.0
   foot_floor_collision_weight: 2.0
+  robot_floor_collision_weight: 100.0
+  torso_min_height: 0.65
+  torso_min_height_weight: 10000.0

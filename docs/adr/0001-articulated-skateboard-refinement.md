@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-27
+- Amended: 2026-08-28 (full reference-state preservation)
 
 ## Context
 
@@ -14,17 +15,20 @@ the board as a rigid box would optimize against the wrong dynamics.
 
 Use the bundled articulated G1-and-skateboard MuJoCo model for both reference
 extraction and rollout. A skateboard reference is a numeric `.npz` containing
-model-ordered `qpos` with shape `(T, 49)` and scalar `fps`:
+model-ordered `qpos` with shape `(T, 49)`, scalar `fps`, and optional
+model-ordered `qvel` with shape `(T, 47)`:
 
 1. G1 floating base and 29 actuated joints.
 2. Skateboard free joint.
 3. Six passive truck and wheel joints.
 
-The task tracks robot and board motion, encourages foot-to-deck contact, and
-penalizes foot-to-floor contact. Passive joint reference values are preserved
-when constant. A moving passive-joint reference is rejected because SBTO only
-optimizes the 29 robot actuator targets and cannot directly command those six
-joints.
+The task tracks robot and board motion, including foot position in the board
+frame, encourages foot-to-deck contact, and penalizes robot/foot-to-floor
+contact. A separate terminal board-orientation weight expresses the completed
+shuvit without over-constraining its airborne path. Passive joint positions and
+velocities are preserved when `qvel` is present. Pose-only moving-passive
+references are rejected because their velocity state is ambiguous. SBTO still
+optimizes only the 29 robot actuator targets.
 
 ## Consequences
 
@@ -36,5 +40,5 @@ joints.
   training pipeline.
 - Generated datasets, optimizer runs, and candidate `.npz` files remain
   uncommitted unless explicitly approved as validated fixtures or releases.
-- Supporting moving passive-joint targets would require a new control or
-  constraint design and is intentionally out of scope.
+- Moving passive state is supported as a reference, but direct passive-joint
+  actuation remains out of scope.

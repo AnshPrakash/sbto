@@ -1,15 +1,15 @@
 import mujoco
 import numpy as np
 from scipy.interpolate import interp1d
-from typing import Dict, List
 
+from sbto.data.constants import *
+from sbto.data.postprocess import split_x_traj
 from sbto.sim.scene_mj import MjScene
 from sbto.utils.finite_diff import (
     finite_diff_qpos_traj_high_order,
     finite_diff_quat_traj,
 )
-from sbto.data.postprocess import split_x_traj
-from sbto.data.constants import *
+
 
 def normalize_quat(q: np.ndarray) -> np.ndarray:
     """Normalize quaternion array [T,4]."""
@@ -29,19 +29,15 @@ def flip_quat_pos_in_traj(free_joint_traj: np.ndarray) -> np.ndarray:
 def compute_time_array(fps: float, N: int) -> np.ndarray:
     return np.arange(N) / fps
 
-def load_npz_reference(path: str) -> Dict[str, np.ndarray]:
+def load_npz_reference(path: str) -> dict[str, np.ndarray]:
     """
-    Loads reference from NPZ and extracts the required qpos fields.
-    Only returns minimal dict: qpos, fps.
+    Load model-ordered qpos and optional qvel from an NPZ reference.
     """
     file = np.load(path, mmap_mode="r")
-    qpos = file["qpos"]
-    fps = int(file["fps"])
-
-    return {
-        "qpos": qpos,
-        "fps": float(fps),
-    }
+    data = {"qpos": file["qpos"], "fps": float(file["fps"])}
+    if "qvel" in file:
+        data["qvel"] = file["qvel"]
+    return data
 
 def make_quaternions_continuous(quat_traj: np.ndarray):
     """
@@ -91,10 +87,23 @@ class ReferenceMotion:
         base = load_npz_reference(ref_motion_path)
         self.fps = base["fps"] * speedup
         self._qpos = np.asarray(base["qpos"], dtype=np.float64).copy()
+        self._qvel = (
+            np.asarray(base["qvel"], dtype=np.float64).copy() * speedup
+            if "qvel" in base
+            else None
+        )
         if self._qpos.ndim != 2 or self._qpos.shape[1] != self.mj_scene.Nq:
             raise ValueError(
                 f"Reference qpos must have shape (T, {self.mj_scene.Nq}); "
                 f"got {self._qpos.shape}."
+            )
+        if self._qvel is not None and self._qvel.shape != (
+            len(self._qpos),
+            self.mj_scene.Nv,
+        ):
+            raise ValueError(
+                f"Reference qvel must have shape (T, {self.mj_scene.Nv}); "
+                f"got {self._qvel.shape}."
             )
 
         # Fix quaterion format
@@ -119,8 +128,16 @@ class ReferenceMotion:
         self.trim_traj(t0, t_end)
         self.apply_z_offset(z_offset)
         self._qpos_dict = split_x_traj(self._qpos, self.mj_scene, only_pos=True)
+        source_time = self.time.copy()
         self._qpos_dict = self.interpolate_to_mj_dt(self._qpos_dict)
-        self._vel_dict = self.compute_velocities(self._qpos_dict)
+        if self._qvel is None:
+            self._vel_dict = self.compute_velocities(self._qpos_dict)
+        else:
+            if not np.array_equal(source_time, self.time):
+                self._qvel = interpolate_trajectory(
+                    self._qvel, source_time, self.time
+                )
+            self._vel_dict = self.split_velocities(self._qvel)
         self.x = self.concatenate_full_state(self._qpos_dict, self._vel_dict)
 
     def trim_traj(self, t0: float, t_end: float):
@@ -134,11 +151,15 @@ class ReferenceMotion:
         if t0 > 0:
             idx = np.searchsorted(self.time, t0)
             self._qpos = self._qpos[idx:]
+            if self._qvel is not None:
+                self._qvel = self._qvel[idx:]
             self.time = self.time[idx:] - self.time[idx]
 
         if t_end > 0:
             idx = np.searchsorted(self.time, t_end)
             self._qpos = self._qpos[:idx]
+            if self._qvel is not None:
+                self._qvel = self._qvel[:idx]
             self.time = self.time[:idx]
 
     def apply_z_offset(self, z_offset):
@@ -157,13 +178,13 @@ class ReferenceMotion:
         t_new = np.arange(0, self.time[-1] + self.dt / 2, self.dt)
         qpos_dict_interp = {}
         for k, v in qpos_dict.items():
-            is_quat = True if "rot" in k else False
+            is_quat = "rot" in k
             qpos_dict_interp[k] = interpolate_trajectory(v, self.time, t_new, is_quat=is_quat)
         
         self.time = t_new
         return qpos_dict_interp
 
-    def compute_velocities(self, qpos_dict: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+    def compute_velocities(self, qpos_dict: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         """Compute velocities for root/dof/object segments."""
         out = {}
 
@@ -180,6 +201,17 @@ class ReferenceMotion:
             out[KEY_OBJECT_V] = finite_diff_qpos_traj_high_order(qpos_dict[KEY_OBJECT_POS], self.dt)
             out[KEY_OBJECT_W] = finite_diff_quat_traj(qpos_dict[KEY_OBJECT_ROT], self.dt)
 
+        return out
+
+    def split_velocities(self, qvel: np.ndarray) -> dict[str, np.ndarray]:
+        """Split model-ordered qvel into the fields used by the task."""
+        out = {KEY_DOF_V: qvel[:, self.mj_scene.act_vel_adr - self.mj_scene.Nq]}
+        if self.mj_scene.is_floating_base:
+            out[KEY_ROOT_V] = qvel[:, self.mj_scene.base_v_adr - self.mj_scene.Nq]
+            out[KEY_ROOT_W] = qvel[:, self.mj_scene.base_w_adr - self.mj_scene.Nq]
+        if self.mj_scene.is_obj:
+            out[KEY_OBJECT_V] = qvel[:, self.mj_scene.obj_v_adr - self.mj_scene.Nq]
+            out[KEY_OBJECT_W] = qvel[:, self.mj_scene.obj_w_adr - self.mj_scene.Nq]
         return out
 
     def concatenate_full_state(self, qpos_dict, vel_dict) -> np.ndarray:
@@ -214,17 +246,28 @@ class ReferenceMotion:
         )
         if passive_qpos.size:
             passive_values = self._qpos[:, passive_qpos]
-            # ponytail: moving passive joints need model-aware interpolation and qvels.
-            if not np.allclose(passive_values, passive_values[0], atol=1e-8):
+            if self._qvel is None and not np.allclose(
+                passive_values, passive_values[0], atol=1e-8
+            ):
                 raise ValueError(
-                    "Reference contains moving passive joints; only constant passive "
-                    "joint references are supported."
+                    "Reference contains moving passive joints; provide model-ordered "
+                    "qvel to preserve them."
                 )
-            x[:, passive_qpos] = passive_values[0]
+            if len(passive_values) == len(self.time):
+                x[:, passive_qpos] = passive_values
+            else:
+                x[:, passive_qpos] = interpolate_trajectory(
+                    passive_values,
+                    compute_time_array(self.fps, len(passive_values)),
+                    self.time,
+                )
+
+        if self._qvel is not None:
+            x[:, self.mj_scene.Nq:] = self._qvel
 
         return x
 
-    def compute_sensor_data(self, sensor_names: List[str]):
+    def compute_sensor_data(self, sensor_names: list[str]):
         """
         Extracts sensor values for each timestep along the trajectory.
         The results are stored as attributes:

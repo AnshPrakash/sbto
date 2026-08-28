@@ -1,14 +1,19 @@
-import numpy as np
 from dataclasses import dataclass
-from typing import Optional
+
+import numpy as np
 
 import sbto.tasks.g1.constants as G1
 from sbto.sim.sim_mj_rollout import SimMjRollout
-from sbto.tasks.task_mj_ref import TaskMjRef, MjScene, ConfigRefMotion
-from sbto.tasks.cost import quadratic_cost_nb, quaternion_dist_logmap_nb, hamming_dist_nb
+from sbto.tasks.cost import (
+    hamming_dist_nb,
+    quadratic_cost_nb,
+    quaternion_dist_logmap_nb,
+)
+from sbto.tasks.task_mj_ref import ConfigRefMotion, MjScene, TaskMjRef
+
 
 @dataclass
-class ConfigG1RobotRef():
+class ConfigG1RobotRef:
 
     # --- State costs ---
     joint_pos_weight: float = 0.1
@@ -45,7 +50,7 @@ class G1RobotRef(TaskMjRef):
         sim: SimMjRollout,
         cfg: ConfigG1RobotRef,
         cfg_ref: ConfigRefMotion,
-        mj_scene_ref: Optional[MjScene] = None,
+        mj_scene_ref: MjScene | None = None,
         ):
         super().__init__(sim, cfg_ref, mj_scene_ref)
 
@@ -143,7 +148,7 @@ class G1RobotRef(TaskMjRef):
             G1.Sensors.TORSO_QUAT,
             quaternion_dist_logmap_nb,
             weights=cfg.torso_quat_weight,
-            weights_terminal=cfg.torso_quat_weight,
+            weights_terminal=cfg.torso_quat_weight_terminal,
         )
         self.add_sensor_cost_from_ref(
             G1.Sensors.TORSO_LINVEL,

@@ -61,11 +61,24 @@ uv run python scripts/visualize_ref.py \
 
 ### Articulated G1 skateboard reference
 
-The skateboard task expects a numeric `.npz` with `qpos` shaped `(T, 49)` and
-a scalar `fps`. `qpos` must follow the bundled MuJoCo model order: G1 floating
-base and 29 joints, then skateboard free joint and six passive truck/wheel
-joints. MuJoCo free-joint poses use `[position, quaternion]` with a `wxyz`
-quaternion, so disable the OmniRetarget conversion:
+The skateboard task expects a numeric `.npz` with `qpos` shaped `(T, 49)`, a
+scalar `fps`, and optionally model-ordered `qvel` shaped `(T, 47)`. `qpos`
+follows the bundled MuJoCo order: G1 floating base and 29 joints, skateboard
+free joint, then six passive truck/wheel joints. Provide `qvel` whenever a
+passive joint moves; pose-only files remain supported when passive joints are
+constant. MuJoCo free-joint poses use `[position, quaternion]` with a `wxyz`
+quaternion, so disable the OmniRetarget conversion.
+
+Convert a trusted BeyondMimic archive by joint name instead of assuming its
+column order:
+
+```bash
+uv run --locked python scripts/convert_beyondmimic_reference.py \
+  PATH_TO_BEYONDMIMIC.npz \
+  artifacts/reference-sbto-state.npz
+```
+
+Then optimize it:
 
 ```bash
 uv run python sbto/main.py \
@@ -75,11 +88,12 @@ uv run python sbto/main.py \
   task.sim.cfg.step_knots=10
 ```
 
-The passive joint reference values must be constant; moving passive references
-are rejected because those joints are not directly actuated. See
-[ADR 0001](docs/adr/0001-articulated-skateboard-refinement.md) for the model and
+SBTO still optimizes only the 29 robot actuator targets. Passive skateboard
+positions and velocities are reference state, not controls. See [ADR
+0001](docs/adr/0001-articulated-skateboard-refinement.md) for the model and
 validation boundary. Generated trajectories should stay outside Git until
-their tracking, landing, contact, and finite-value checks pass.
+their tracking, board rotation, landing, collision, and finite-value checks
+pass.
 
 ### Changing the scene
 SBTO also allows to change the scene directly from command line arguments.

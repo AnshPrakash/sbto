@@ -9,8 +9,11 @@
     <contact geom1="right_foot3_collision" subtree2="base_link" reduce="maxforce" data="found force" num="1" name="right_foot3"/>
     <contact subtree1="left_ankle_roll_link" subtree2="base_link" data="found" num="1" name="left_foot_deck"/>
     <contact subtree1="right_ankle_roll_link" subtree2="base_link" data="found" num="1" name="right_foot_deck"/>
+    <framepos objtype="site" objname="left_foot" reftype="body" refname="base_link" name="left_foot_pos_board"/>
+    <framepos objtype="site" objname="right_foot" reftype="body" refname="base_link" name="right_foot_pos_board"/>
 
     <contact subtree1="base_link" body2="static" reduce="maxforce" data="found" num="1" name="skateboard_floor"/>
+    <contact subtree1="pelvis" body2="static" reduce="maxforce" data="found" num="1" name="robot_floor"/>
     <contact geom1="left_foot1_collision" geom2="floor" data="found" num="1" name="left_foot1_floor"/>
     <contact geom1="left_foot2_collision" geom2="floor" data="found" num="1" name="left_foot2_floor"/>
     <contact geom1="left_foot3_collision" geom2="floor" data="found" num="1" name="left_foot3_floor"/>

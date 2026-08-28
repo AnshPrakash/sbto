@@ -14,6 +14,20 @@ def quadratic_cost_nb(var, ref, weight):
                 diff = var[n, t, i] - ref[t, i]
                 result[n] += weight[t, i] * diff * diff
     return result
+
+
+@njit(parallel=True, fastmath=True, cache=True)
+def lower_bound_cost_nb(var, lower_bound, weight):
+    """Quadratic penalty for values below a lower bound."""
+    N, T, I = var.shape
+    result = np.zeros(N, np.float64)
+    for n in prange(N):
+        for t in range(T):
+            for i in range(I):
+                violation = lower_bound[t, i] - var[n, t, i]
+                if violation > 0.0:
+                    result[n] += weight[t, i] * violation * violation
+    return result
     
 @njit(parallel=True, fastmath=True, cache=True)
 def quaternion_dist_nb(var, ref, weights):
@@ -104,15 +118,19 @@ def hamming_dist_nb(cnt_rollout, cnt_plan, weights):
             for c in range(C):
                 s = cnt_rollout[n, t, c]
                 # Clamp contact status > 1 to 1, cast to integer
-                if s > 1:
-                    s = 1
+                s = min(s, 1)
                 # XOR trick for mismatch detection (works with ints 0/1)
                 diff = int(s) ^ int(cnt_plan[t, c])
                 total += weights[t, c] * diff
         result[n] = total
     return result
 
-COST_FUNS = [quadratic_cost_nb, quaternion_dist_logmap_nb, hamming_dist_nb]
+COST_FUNS = [
+    quadratic_cost_nb,
+    quaternion_dist_logmap_nb,
+    hamming_dist_nb,
+    lower_bound_cost_nb,
+]
 
 def get_cost_fn_idx(f):
     if f in COST_FUNS:
@@ -155,5 +173,7 @@ def compute_total_cost(
             total += quaternion_dist_logmap_nb(var[..., idx], ref, w)
         elif f_ids[t] == 2:
             total += hamming_dist_nb(var[..., idx], ref, w)
+        elif f_ids[t] == 3:
+            total += lower_bound_cost_nb(var[..., idx], ref, w)
 
     return total

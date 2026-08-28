@@ -67,3 +67,26 @@ def test_reference_rejects_moving_passive_joints(tmp_path):
         assert "moving passive joints" in str(exc)
     else:
         raise AssertionError("moving passive joint reference was accepted")
+
+
+def test_reference_preserves_model_ordered_qvel_and_moving_passive_joint(tmp_path):
+    model_path = tmp_path / "model.xml"
+    model_path.write_text(MODEL)
+    scene = MjScene(ConfigMjScene(xml_scene_path=str(model_path)))
+    qpos = np.tile(scene.mj_model.qpos0, (4, 1))
+    qvel = np.zeros((4, scene.Nv))
+    passive_joint = scene.mj_model.joint("passive")
+    passive_qpos = int(passive_joint.qposadr[0])
+    passive_qvel = int(passive_joint.dofadr[0])
+    qpos[:, passive_qpos] = [0.0, 0.1, 0.2, 0.3]
+    qvel[:, passive_qvel] = 5.0
+    ref_path = tmp_path / "reference.npz"
+    np.savez(ref_path, qpos=qpos, qvel=qvel, fps=50.0)
+
+    ref = ReferenceMotion(scene, str(ref_path), flip_quat_pos=False)
+
+    assert ref.x.shape == (7, scene.Nx)
+    np.testing.assert_allclose(ref.x[::2, passive_qpos], qpos[:, passive_qpos])
+    np.testing.assert_allclose(
+        ref.x[:, scene.Nq + passive_qvel], qvel[0, passive_qvel]
+    )

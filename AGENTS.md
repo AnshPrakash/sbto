@@ -33,17 +33,20 @@ files clean without folding a broad lint rewrite into feature work.
 - `sbto/models/unitree_g1/scene_mjx_29dof_skateboard.xml`: combined model.
 - `sbto/models/skateboard/skateboard_adi.xml`: articulated board body.
 - `sbto/utils/extract_ref.py`: reference-state extraction and validation.
+- `scripts/convert_beyondmimic_reference.py`: name-safe BeyondMimic converter.
 - `tests/`: reference and skateboard contract checks.
 - `docs/adr/`: architectural decisions and scientific boundaries.
 
 ## Skateboard reference contract
 
-Input is a numeric `.npz` with `qpos` shaped `(T, 49)` plus scalar `fps`.
+Input is a numeric `.npz` with `qpos` shaped `(T, 49)`, scalar `fps`, and
+optional model-ordered `qvel` shaped `(T, 47)`.
 Ordering must exactly match the combined MuJoCo model: G1 floating base and 29
 joints, skateboard free joint, then six passive truck/wheel joints. MuJoCo
 free-joint data is `[position, quaternion]` with `wxyz` quaternion order; use
-`task.cfg_ref.flip_quat_pos=false`. Constant passive references are preserved;
-moving passive references fail fast because the optimizer cannot actuate them.
+`task.cfg_ref.flip_quat_pos=false`. Provide `qvel` when passive joints move;
+those states are preserved even though the optimizer still controls only the
+29 robot actuators. Pose-only moving-passive files fail fast.
 
 ## Scientific and repository guardrails
 
@@ -54,7 +57,8 @@ moving passive references fail fast because the optimizer cannot actuate them.
 - Record the input hash, commit, seed, model, solver overrides, and validation
   results for any candidate trajectory.
 - A completed optimization is not enough: check finite values, board position
-  and yaw tracking, landing/deck contact, foot-floor contact, and torso tilt.
+  and net yaw rotation, landing/deck contact, robot/foot-floor contact, torso
+  height, and torso tilt.
 - Treat candidates as review-only until cross-model replay and downstream
   project gates pass. Never describe model feasibility as hardware safety.
 - Preserve unrelated worktree changes and keep changes scoped to the active
